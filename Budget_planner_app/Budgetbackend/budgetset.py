@@ -37,7 +37,7 @@ def calendar():
     return month_map[now.month]
 
 # --- User Management ---
-def add_user(username, password, hourly_rate):
+def add_user(username, password, hourly_rate, date_of_birth=None):
     """Add user to database. Returns user_id if successful, None otherwise."""
     conn = get_conn()
     if not conn:
@@ -48,8 +48,8 @@ def add_user(username, password, hourly_rate):
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT IGNORE INTO users (username, password, hourly_rate) VALUES (%s, %s, %s)",
-            (username, password, float(hourly_rate))
+            "INSERT IGNORE INTO users (username, password, hourly_rate, date_of_birth) VALUES (%s, %s, %s, %s)",
+            (username, password, float(hourly_rate), date_of_birth)
         )
         conn.commit()
         

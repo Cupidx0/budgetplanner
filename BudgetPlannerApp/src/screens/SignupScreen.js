@@ -20,9 +20,9 @@ export default function SignupScreen({ navigation, onSignup }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [loading, setLoading] = useState(false);
-
+  const [date, setDate] = useState('');
   const handleSignup = async () => {
-    if (!username || !password || !confirmPassword || !hourlyRate) {
+    if (!username || !password || !confirmPassword || !date) {
       Alert.alert('Error', 'Please fill in all fields');
       Toast.show({
         type:"error",
@@ -42,7 +42,7 @@ export default function SignupScreen({ navigation, onSignup }) {
       return;
     }
 
-    if (isNaN(parseFloat(hourlyRate)) || parseFloat(hourlyRate) <= 0) {
+    /*if (isNaN(parseFloat(hourlyRate)) || parseFloat(hourlyRate) <= 0) {
       Alert.alert('Error', 'Please enter a valid hourly rate');
       Toast.show({
         type:"error",
@@ -50,11 +50,20 @@ export default function SignupScreen({ navigation, onSignup }) {
         text2:"Please enter a valid hourly rate",
       });
       return;
+    }*/
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      Alert.alert('Error', 'Please enter a valid date in YYYY-MM-DD format');
+      Toast.show({
+        type:"error",
+        text1:"Error",
+        text2:"Please enter a valid date in YYYY-MM-DD format",
+      });
+      return;
     }
 
     setLoading(true);
     try {
-      const response = await authAPI.signup(username, password, hourlyRate);
+      const response = await authAPI.signup(username, password, date);
       if (response.user_id) {
         await AsyncStorage.setItem('userData', JSON.stringify(response));
         if (onSignup) onSignup();
@@ -118,7 +127,13 @@ export default function SignupScreen({ navigation, onSignup }) {
           onChangeText={setConfirmPassword}
           secureTextEntry
         />
-
+        <Text>Date of Birth</Text>
+        <TextInput
+          style={styles.input}
+          placeholder='YYYY-MM-DD (e.g., 1990-01-01)'
+          value={date}
+          onChangeText={setDate}
+        />
         <TextInput
           style={styles.input}
           placeholder="Hourly Rate (e.g., 16.50)"

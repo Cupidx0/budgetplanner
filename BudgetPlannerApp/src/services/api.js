@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // For physical device: http://YOUR_COMPUTER_IP:5000
 const getBaseURL = () => {
   // Change this to your actual IP for physical device testing
-  return 'http://localhost:5000'; // Change to http://192.168.x.x:5000 for physical device
+  return 'http://localhost:5001'; // Change to http://192.168.x.x:5000 for physical device
 };
 
 export const API_BASE_URL = getBaseURL();
@@ -63,12 +63,12 @@ export const authAPI = {
     }
   },
 
-  signup: async (username, password, hourly_rate) => {
+  signup: async (username, password, date_of_birth) => {
     try {
       const response = await api.post('/api/register', {
         username,
         password,
-        hourly_rate: parseFloat(hourly_rate),
+        date_of_birth,
       });
       return response.data;
     } catch (error) {
@@ -250,7 +250,18 @@ export const employerShiftAPI = {
       throw error;
     }
   },
-
+  approveOvertimeShift: async (shiftId) => {
+    try {
+      const response = await api.put(`/api/employer/shifts/${shiftId}/overtime`);
+      return response.data;
+    } catch (error) {
+      console.error('Approve overtime shift API error:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to approve overtime shift'
+      };
+    }
+  },
   approveShift: async (shiftId) => {
     try {
       const response = await api.put(`/api/employer/shifts/${shiftId}/approve`);

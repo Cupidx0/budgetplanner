@@ -3,7 +3,7 @@ from flask_cors import CORS
 import mysql.connector
 import os
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from budgetset import get_conn, add_user, save_daily_to_db
 import openai
 app = Flask(__name__)
@@ -33,64 +33,6 @@ def calculate_tax(gross_salary):
     return round(tax, 2)
 
 # --- Auto-Update Helpers ---
-def auto_update_weekly_earnings(user_id):
-    """Automatically calculate and update weekly earnings in the database."""
-    now = datetime.now()
-    week_num = now.isocalendar()[1]
-    year_num = now.year
-    
-    conn = get_conn()
-    if not conn:
-        return
-    
-    cur = None
-    try:
-        cur = conn.cursor()
-        # Calculate total weekly earnings
-        cur.execute(
-            "SELECT IFNULL(SUM(daily_keep_amount),0) FROM daily_keep "
-            "WHERE WEEK(daily_keep_date,1) = %s AND YEAR(daily_keep_date) = %s AND user_id = %s",
-            (week_num, year_num, user_id)
-        )
-        row = cur.fetchone()
-        total_weekly = float(row[0]) if row and row[0] is not None else 0.0
-        
-        # Check if record exists
-        cur.execute(
-            "SELECT weekly_earnings_id FROM weekly_earnings "
-            "WHERE week_number=%s AND year_num=%s AND user_id=%s",
-            (week_num, year_num, user_id)
-        )
-        existing = cur.fetchone()
-        
-        if existing:
-            # Update existing record
-            cur.execute(
-                "UPDATE weekly_earnings SET earnings_amount=%s "
-                "WHERE week_number=%s AND year_num=%s AND user_id=%s",
-                (total_weekly, week_num, year_num, user_id)
-            )
-        else:
-            # Insert new record
-            cur.execute(
-                "INSERT INTO weekly_earnings (week_number, year_num, earnings_amount, user_id) "
-                "VALUES (%s, %s, %s, %s)",
-                (week_num, year_num, total_weekly, user_id)
-            )
-        conn.commit()
-    except Exception as e:
-        print(f"Error auto-updating weekly earnings: {e}")
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except:
-                pass
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
 
 
 # --- Raw DB fetch helpers (return raw python data, not Flask responses) ---
@@ -237,18 +179,37 @@ def register():
     data = request.json
     username = data.get('username')
     password = data.get('password')
-    hourly_rate = data.get('hourly_rate', 10.50)
-    
+    hourly_rate = data.get('hourly_rate')  # Optional, can be calculated from DOB if not provided
+    date_of_birth = data.get('date_of_birth')  # Optional, format: "YYYY-MM-DD"
     if not username or not password:
         return jsonify({'success': False, 'message': 'Missing credentials'}), 400
     
-    try:
-        hourly_rate = float(hourly_rate)
-    except:
-        return jsonify({'success': False, 'message': 'Invalid hourly rate'}), 400
-    
+    if hourly_rate is not None:
+            hourly_rate = float(hourly_rate)
+            return jsonify({
+                "hourly_rate": hourly_rate,
+                "message": f"Hourly rate for user {user_id} is ${hourly_rate:.2f}"
+            }), 200
+    dob_date = None
+    if isinstance(date_of_birth, datetime):
+        dob_date = date_of_birth.date()
+    elif isinstance(date_of_birth, date):
+        dob_date = date_of_birth
+    elif isinstance(date_of_birth, str):
+        try:
+            dob_date = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
+        except ValueError:
+            dob_date = None
+
+    if not dob_date:
+        return jsonify({"hourly_rate": None, "message": "Hourly rate not set"}), 200
+
+    today = datetime.now().date()
+    age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
+    hourly_rate = 10.50 if age < 18 else 12.00
+    hourly_rate = float(hourly_rate)
     # Use your existing add_user function
-    user_id = add_user(username, password, hourly_rate)
+    user_id = add_user(username, password, hourly_rate, date_of_birth)
     
     if user_id:
         return jsonify({
@@ -256,6 +217,7 @@ def register():
             'user_id': user_id,
             'username': username,
             'hourly_rate': hourly_rate,
+            'date_of_birth': date_of_birth,
             'message': 'User registered successfully'
         }), 201
     else:
@@ -319,12 +281,44 @@ def get_hourly_rate(user_id):
     cur = None
     try:
         cur = conn.cursor()
-        cur.execute("SELECT hourly_rate FROM users WHERE user_id=%s LIMIT 1", (user_id,))
+        cur.execute(
+            "SELECT hourly_rate, date_of_birth FROM users WHERE user_id=%s LIMIT 1",
+            (user_id,)
+        )
         row = cur.fetchone()
-        if row and row[0] is not None:
-            return jsonify({"hourly_rate": float(row[0])}), 200
-        else:
+        if not row:
             return jsonify({"hourly_rate": None, "message": "Hourly rate not set"}), 200
+
+        hourly_rate, dob_value = row
+        if hourly_rate is not None:
+            hourly_rate = float(hourly_rate)
+            return jsonify({
+                "hourly_rate": hourly_rate,
+                "message": f"Hourly rate for user {user_id} is ${hourly_rate:.2f}"
+            }), 200
+
+        dob_date = None
+        if isinstance(dob_value, datetime):
+            dob_date = dob_value.date()
+        elif isinstance(dob_value, date):
+            dob_date = dob_value
+        elif isinstance(dob_value, str):
+            try:
+                dob_date = datetime.strptime(dob_value, "%Y-%m-%d").date()
+            except ValueError:
+                dob_date = None
+
+        if not dob_date:
+            return jsonify({"hourly_rate": None, "message": "Hourly rate not set"}), 200
+
+        today = datetime.now().date()
+        age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
+        hourly = 10.50 if age < 18 else 12.00
+
+        return jsonify({
+            "hourly_rate": hourly,
+            "message": f"Calculated hourly rate for user {user_id} is ${hourly:.2f}"
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -343,16 +337,16 @@ def get_hourly_rate(user_id):
 def update_hourly_rate(user_id):
     """Update user's hourly rate."""
     data = request.json
-    hourly_rate = data.get('hourly_rate')
-    
+    hourly_rate = data.get('date_of_birth')  # Expecting date_of_birth to recalculate hourly rate
+    dob = None
+    hourly = hourly_rate.strftime("%Y-%m-%d") if isinstance(hourly_rate, datetime) else hourly_rate
     if hourly_rate is None:
-        return jsonify({"error": "Hourly rate required"}), 400
-    
-    try:
-        hourly_rate = float(hourly_rate)
-    except:
-        return jsonify({"error": "Invalid hourly rate"}), 400
-    
+        return jsonify({"error": "Date of birth required to update hourly rate"}), 400
+    else:
+        try:
+            hourly_rate = float(hourly_rate)
+        except:
+            return jsonify({"error": "Invalid date of birth format"}), 400
     conn = get_conn()
     if not conn:
         return jsonify({"error": "Database unavailable"}), 500
@@ -494,14 +488,7 @@ def get_daily_salaries(user_id):
                 pass
 @app.route('/api/user/<int:user_id>/weekly-earnings', methods=['GET'])
 def get_weekly_earnings(user_id):
-    """Get weekly earnings for current week."""
-    now = datetime.now()
-    week_num = now.isocalendar()[1]
-    year_num = now.year
-    
-    # Ensure weekly earnings are up to date
-    auto_update_weekly_earnings(user_id)
-    
+    """Get total weekly earnings for user."""
     conn = get_conn()
     if not conn:
         return jsonify({"error": "Database unavailable"}), 500
@@ -509,20 +496,16 @@ def get_weekly_earnings(user_id):
     cur = None
     try:
         cur = conn.cursor()
-        # Get from weekly_earnings table (auto-updated)
         cur.execute(
-            "SELECT IFNULL(earnings_amount,0) FROM weekly_earnings "
-            "WHERE week_number=%s AND year_num=%s AND user_id=%s",
-            (week_num, year_num, user_id)
+            """
+            SELECT IFNULL(SUM(weekly_earnings),0) FROM shifts
+            WHERE employee_id=%s AND shift_date >= CURDATE() - INTERVAL 7 DAY
+            """,
+            (user_id,)
         )
         row = cur.fetchone()
         total_weekly = float(row[0]) if row and row[0] is not None else 0.0
-        
-        return jsonify({
-            "week_number": week_num,
-            "year": year_num,
-            "total_earnings": total_weekly
-        }), 200
+        return jsonify({"weekly_earnings": total_weekly}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -749,7 +732,7 @@ def delete_bill(user_id, bill_id):
                 conn.close()
             except:
                 pass
-
+##reconstruct monthly salary to remodel it as payslips
 @app.route('/api/user/<int:user_id>/monthly-salary', methods=['GET'])
 def get_monthly_salary(user_id):
     """Get monthly salary with tax breakdown."""
@@ -999,9 +982,16 @@ def approve_shift(shift_id):
             return jsonify({'success': False, 'message': 'Shift not found'}), 404
         
         employee_id, shift_date, hours_worked, hourly_rate = shift
+        if round(float(hours_worked), 2) >= 6.0:
+            break_time = 0.25  # 30 minutes break for shifts 6 hours or longer
+        elif round(float(hours_worked), 2) >= 8.0:
+            break_time = 0.5  # 1 hour break for shifts 8 hours or longer
+        else:
+            break_time = 0.0  # No break for shorter shifts
         
         # Calculate earnings for this shift
-        shift_earnings = round(float(hours_worked) * float(hourly_rate), 2) if hourly_rate else 0.0
+        hours_worked_adjusted = float(hours_worked) - break_time
+        shift_earnings = round(hours_worked_adjusted * float(hourly_rate), 2) if hourly_rate else 0.0
         
         # Update shift status
         cur.execute(
@@ -1093,7 +1083,125 @@ def approve_shift(shift_id):
                 conn.close()
             except:
                 pass
-
+@app.route('/api/employer/shifts/<int:shift_id>/overtime', methods=['PUT'])
+def approve_overtime_shift(shift_id):
+    """Approve an overtime shift and update employee salary."""
+    conn = get_conn()
+    if not conn:
+        return jsonify({'success': False, 'message': 'Database unavailable'}), 500
+    
+    cur = None
+    try:
+        cur = conn.cursor()
+        
+        # Get shift and employee details
+        cur.execute(
+            "SELECT s.employee_id, s.shift_date, s.hours_worked, u.hourly_rate "
+            "FROM shifts s "
+            "JOIN users u ON s.employee_id = u.user_id "
+            "WHERE s.shift_id = %s",
+            (shift_id,)
+        )
+        shift = cur.fetchone()
+        
+        if not shift:
+            return jsonify({'success': False, 'message': 'Shift not found'}), 404
+        
+        employee_id, shift_date, hours_worked, hourly_rate = shift
+        
+        # Calculate earnings for this shift
+        shift_earnings = round(float(hours_worked) * float(hourly_rate) * 1.5 , 2) if hourly_rate else 0.0
+        
+        # Update shift status
+        cur.execute(
+            "UPDATE shifts SET status = 'approved', approved_at = NOW() WHERE shift_id = %s",
+            (shift_id,)
+        )
+        
+        # Create notification for employee
+        cur.execute(
+            "INSERT INTO notifications (user_id, shift_id, notification_type, message) "
+            "VALUES (%s, %s, %s, %s)",
+            (employee_id, shift_id, 'shift_approved', f'Your shift on {shift_date} has been approved! Earned: £{shift_earnings:.2f}')
+        )
+        
+        # Add to daily_keep for salary tracking with calculated amount
+        cur.execute(
+            
+            "INSERT INTO daily_keep (daily_keep_date, daily_hours_worked, daily_keep_amount, user_id) "
+            "VALUES (%s, %s, %s, %s)",
+            (shift_date, hours_worked, shift_earnings, employee_id)
+        )
+        now = shift_date.day if hasattr(shift_date, 'day') else int(str(shift_date).split('-')[2])
+        week_num = now.isocalendar()[1] if hasattr(now, 'isocalendar') else datetime.strptime(str(shift_date), '%Y-%m-%d').isocalendar()[1]
+        year_num = shift_date.year if hasattr(shift_date, 'year') else int(str(shift_date).split('-')[0])
+        # Ensure weekly earnings are up to date
+        auto_update_weekly_earnings(employee_id)
+        # Get from weekly_earnings table (auto-updated)
+        cur.execute(
+                "SELECT IFNULL(earnings_amount,0) FROM weekly_earnings "
+                "WHERE week_number=%s AND year_num=%s AND user_id=%s",
+                (week_num, year_num, employee_id)
+        )
+        row = cur.fetchone()
+        total_weekly = float(row[0]) if row and row[0] is not None else 0.0
+        cur.execute(
+            "UPDATE weekly_earnings SET earnings_amount = %s "
+            "WHERE week_number = %s AND year_num = %s AND user_id = %s",
+            (total_weekly, week_num, year_num, employee_id)
+        )
+        # Update monthly salary summary
+        # shift_date is a datetime.date object, so use .year and .month attributes
+        month_num = shift_date.month if hasattr(shift_date, 'month') else int(str(shift_date).split('-')[1])
+        
+        cur.execute(
+            "SELECT IFNULL(SUM(daily_keep_amount), 0) FROM daily_keep "
+            "WHERE YEAR(daily_keep_date) = %s AND MONTH(daily_keep_date) = %s AND user_id = %s",
+            (year_num, month_num, employee_id)
+        )
+        result = cur.fetchone()
+        monthly_total = float(result[0]) if result and result[0] else 0.0
+        # Update weekly earnings by recalculating from daily_keep
+        # Check if monthly record exists
+        cur.execute(
+            "SELECT monthly_salary_id FROM monthly_salaries WHERE user_id = %s AND month = %s AND year_num = %s",
+            (employee_id, month_num, year_num)
+        )
+        existing_monthly = cur.fetchone()
+        
+        if existing_monthly:
+            cur.execute(
+                "UPDATE monthly_salaries SET salary_amount = %s WHERE user_id = %s AND month = %s AND year_num = %s",
+                (monthly_total, employee_id, month_num, year_num)
+            )
+        else:
+            # Create monthly record if it doesn't exist
+            cur.execute(
+                "INSERT INTO monthly_salaries (user_id, month, year_num, salary_amount) "
+                "VALUES (%s, %s, %s, %s)",
+                (employee_id, month_num, year_num, monthly_total)
+            )
+        
+        conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Shift approved, salary updated, and notification sent',
+            'earnings': shift_earnings
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 @app.route('/api/employer/shifts/<int:shift_id>/reject', methods=['PUT'])
 def reject_shift(shift_id):
     """Reject a shift."""
@@ -1605,4 +1713,4 @@ def mark_notification_read(notification_id):
                 pass
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)

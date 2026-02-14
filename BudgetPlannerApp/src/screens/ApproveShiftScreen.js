@@ -122,7 +122,43 @@ export default function ApproveShiftScreen() {
       });
     }
   };
-
+  const handleOvertimeShift = async (shiftId, isEmployeeSubmitted = false) => {
+    try {
+      console.log('Approving overtime shift:', shiftId);
+      const response = await employerShiftAPI.approveOvertimeShift(shiftId);
+      console.log('Approve overtime response:', response);
+      
+      if (response && response.success) {
+        if (isEmployeeSubmitted) {
+          setEmployeeSubmittedShifts(employeeSubmittedShifts.filter(shift => shift.id !== shiftId));
+        } else {
+          setShifts(shifts.filter(shift => shift.id !== shiftId));
+        }
+        
+        Toast.show({
+          type: 'success',
+          text1: 'Approved',
+          text2: 'Shift has been approved and employee notified',
+          visibilityTime: 3000,
+        });
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: response?.message || 'Failed to approve shift',
+          visibilityTime: 3000,
+        });
+      }
+    } catch (error) {
+      console.error('Approve shift error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: error?.message || 'Failed to approve shift',
+        visibilityTime: 3000,
+      });
+    }
+  };
   const handleRejectShift = async (shiftId, isEmployeeSubmitted = false) => {
     Alert.alert(
       'Reject Shift',
@@ -216,10 +252,16 @@ export default function ApproveShiftScreen() {
           <Text style={styles.rejectButtonText}>Reject</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={[styles.button, styles.overtimeButton]}
+          onPress={() => handleOvertimeShift(item.id, isEmployeeSubmitted)}
+        >
+          <Text style={styles.overtimeButtonText}>Approve Overtime</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.button, styles.approveButton]}
           onPress={() => handleApproveShift(item.id, isEmployeeSubmitted)}
         >
-          <Text style={styles.approveButtonText}>Approve</Text>
+          <Text style={styles.approveButtonText}>Approve Regular Shift</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -413,13 +455,22 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   button: {
-    flex: 1,
+    flex:0.46,
     paddingVertical: 10,
+    paddingHorizontal: 14,
     borderRadius: 6,
     alignItems: 'center',
   },
   approveButton: {
     backgroundColor: '#34C759',
+  },
+  overtimeButton: {
+    backgroundColor: '#c7a034',
+  },
+  overtimeButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
   approveButtonText: {
     color: '#fff',

@@ -28,6 +28,7 @@ def init_db():
                 "  username VARCHAR(50) NOT NULL UNIQUE,"
                 "  password VARCHAR(255) NOT NULL,"
                 "  hourly_rate DECIMAL(10,2) DEFAULT 0.00,"
+                "  date_of_birth DATE DEFAULT NULL,"
                 "  role VARCHAR(20) DEFAULT 'employee',"
                 "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
                 ") ENGINE=InnoDB"
@@ -49,17 +50,6 @@ def init_db():
                 "  bill_amount DECIMAL(10,2) NOT NULL,"
                 "  user_id INT,"
                 "  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL"
-                ") ENGINE=InnoDB"
-            ),
-            "weekly_earnings": (
-                "CREATE TABLE IF NOT EXISTS weekly_earnings ("
-                "  weekly_earnings_id INT AUTO_INCREMENT PRIMARY KEY,"
-                "  week_number INT NOT NULL,"
-                "  year_num INT NOT NULL,"
-                "  earnings_amount DECIMAL(10,2) NOT NULL,"
-                "  user_id INT,"
-                "  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,"
-                "  UNIQUE (week_number, year_num, user_id)"
                 ") ENGINE=InnoDB"
             ),
             "monthly_salaries": (
@@ -93,6 +83,7 @@ def init_db():
                 "  start_time TIME NOT NULL,"
                 "  end_time TIME NOT NULL,"
                 "  description TEXT,"
+                "  weekly_earnings DECIMAL(10,2) DEFAULT 0.00,"
                 "  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',"
                 "  employee_id INT,"
                 "  created_by INT,"
