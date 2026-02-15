@@ -32,9 +32,6 @@ def calculate_tax(gross_salary):
     
     return round(tax, 2)
 
-# --- Auto-Update Helpers ---
-
-
 # --- Raw DB fetch helpers (return raw python data, not Flask responses) ---
 def _fetch_bills_raw(user_id):
     conn = get_conn()
@@ -62,84 +59,47 @@ def _fetch_bills_raw(user_id):
                 pass
 
 
-def _fetch_monthly_net_salary_raw(user_id):
-    now = datetime.now()
-    month = now.month
-    year = now.year
-    conn = get_conn()
-    if not conn:
-        return 0.0
-    cur = None
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT IFNULL(salary_amount,0) FROM monthly_salaries WHERE month=%s AND year_num=%s AND user_id=%s",
-            (month, year, user_id)
-        )
-        row = cur.fetchone()
-        return float(row[0]) if row and row[0] is not None else 0.0
-    except Exception as e:
-        print(f"Error fetching monthly salary: {e}")
-        return 0.0
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except:
-                pass
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def auto_update_monthly_salary(user_id):
-    """Automatically calculate and update monthly salary with tax in the database."""
-    now = datetime.now()
-    month = now.month
-    year = now.year
-    
-    conn = get_conn()
-    if not conn:
-        return
-    
-    cur = None
-    try:
-        cur = conn.cursor()
-        # Calculate total monthly earnings
-        cur.execute(
-            "SELECT IFNULL(SUM(daily_keep_amount),0) FROM daily_keep "
-            "WHERE MONTH(daily_keep_date) = %s AND YEAR(daily_keep_date) = %s AND user_id = %s",
-            (month, year, user_id)
-        )
-        gross_total = float(cur.fetchone()[0] or 0.0)
-        
-        # Calculate tax
-        tax = calculate_tax(gross_total)
-        total_after_tax = gross_total - tax
-        
-        # Insert or update monthly salary
-        cur.execute(
-            "INSERT INTO monthly_salaries (month, year_num, salary_amount, user_id) "
-            "VALUES (%s, %s, %s, %s) "
-            "ON DUPLICATE KEY UPDATE salary_amount = VALUES(salary_amount)",
-            (month, year, round(total_after_tax, 2), user_id)
-        )
-        conn.commit()
-    except Exception as e:
-        print(f"Error auto-updating monthly salary: {e}")
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except:
-                pass
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
+#def _fetch_monthly_net_salary_raw(user_id):
+ #   now = datetime.now()
+ #   month = now.month
+ #   year = now.year
+ #   conn = get_conn()
+ #   if not conn:
+ #       return 0.0
+    # Initialize cursor variable
+    #cur = None
+    #try:
+        # Create database cursor for executing queries
+       # cur = conn.cursor()
+        # Query to fetch monthly salary from shifts table
+        # Uses IFNULL to default to 0 if no value exists
+        # Filters by user_id, year, and month of shift_date
+        #cur.execute(
+        #    "SELECT IFNULL(monthly_salaries,0) FROM shifts WHERE employee_id=%s AND YEAR(shift_date) = %s AND MONTH(shift_date) = %s",
+        #    (user_id, year, month)
+        #)
+        # Fetch the query result
+        #row = cur.fetchone()
+        # Return the monthly salary as float, or 0.0 if no data found
+       # return float(row[0]) if row and row[0] is not None else 0.0
+   # except Exception as e:
+        # Log any errors that occur during database operation
+      #  print(f"Error fetching monthly salary: {e}")
+        # Return 0.0 as fallback value on error
+        #return 0.0
+   # finally:
+        # Ensure cursor is properly closed
+        #if cur:
+            #try:
+             #   cur.close()
+            #except:
+           #     pass
+        # Ensure database connection is properly closed
+        #if conn:
+        #    try:
+          #      conn.close()
+            #except:
+            #    pass
 # --- Helper function to verify user credentials ---
 def verify_user(username, password):
     conn = get_conn()
@@ -401,9 +361,6 @@ def calculate_daily_salary(user_id):
         # Save to database
         save_daily_to_db(daily_salary, daily_hours, user_id)
         
-        # Auto-update weekly earnings and monthly salary
-        auto_update_weekly_earnings(user_id)
-        auto_update_monthly_salary(user_id)
         #get_salary_after_bills(user_id)
         
         return jsonify({
@@ -498,14 +455,24 @@ def get_weekly_earnings(user_id):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT IFNULL(SUM(weekly_earnings),0) FROM shifts
-            WHERE employee_id=%s AND shift_date >= CURDATE() - INTERVAL 7 DAY
+            SELECT COALESCE(SUM(weekly_earning),0),
+                                WEEK(CURDATE(),1),
+                                YEAR(CURDATE())
+            FROM shifts
+            WHERE employee_id=%s
+                AND YEARWEEK(shift_date,1) = YEARWEEK(CURDATE(),1)
             """,
             (user_id,)
         )
         row = cur.fetchone()
         total_weekly = float(row[0]) if row and row[0] is not None else 0.0
-        return jsonify({"weekly_earnings": total_weekly}), 200
+        week_num = row[1] if row else None
+        year = row[2] if row else None
+        return jsonify({
+            "total_earnings": round(total_weekly, 2),
+            "week_number": week_num,
+            "year": year
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -533,7 +500,7 @@ def chat_with_assistant(user_id):
     #        log_contents = log_contents[-5000:]  # Keep last 5000 chars {log_contents}
     # Fetch raw data to use in prompt
     user_bills = _fetch_bills_raw(user_id)
-    user_monthly_salary = _fetch_monthly_net_salary_raw(user_id)
+   # user_monthly_salary = _fetch_monthly_net_salary_raw(user_id)
     hour_pay = update_hourly_rate(user_id)
     with open(log_path,"r") as txt:
         old_chats = txt.read()
@@ -740,8 +707,6 @@ def get_monthly_salary(user_id):
     month = now.month
     year = now.year
     
-    # Ensure monthly salary is up to date
-    auto_update_monthly_salary(user_id)
     
     conn = get_conn()
     if not conn:
@@ -752,13 +717,21 @@ def get_monthly_salary(user_id):
         cur = conn.cursor()
         # Get monthly salary from table
         cur.execute(
-            "SELECT IFNULL(salary_amount,0) FROM monthly_salaries "
-            "WHERE month=%s AND year_num=%s AND user_id=%s",
-            (month, year, user_id)
+            """
+            SELECT IFNULL(SUM(monthly_salaries),0),
+                            WEEK(CURDATE(),1), 
+                            MONTH(CURDATE()),
+                            YEAR(CURDATE())
+            FROM shifts 
+            WHERE employee_id = %s
+                  AND YEAR(shift_date) = YEAR(CURDATE()) AND MONTH(shift_date) = MONTH(CURDATE())
+            """,
+            (user_id,)
         )
         row = cur.fetchone()
         net_salary = float(row[0]) if row and row[0] is not None else 0.0
-        
+        month = row[2] if row else month
+        year = row[3] if row else year
         # Calculate gross from daily_keep
         cur.execute(
             "SELECT IFNULL(SUM(daily_keep_amount),0) FROM daily_keep "
@@ -805,12 +778,20 @@ def get_salary_after_bills(user_id):
         cur = conn.cursor()
         # Get monthly salary
         cur.execute(
-            "SELECT IFNULL(salary_amount,0) FROM monthly_salaries "
-            "WHERE month=%s AND year_num=%s AND user_id=%s",
-            (month, year, user_id)
+            """
+            SELECT COALESCE(SUM(monthly_salaries),0),
+                            WEEK(CURDATE(),1),
+                            MONTH(CURDATE()),
+                            YEAR(CURDATE())
+            FROM shifts 
+            WHERE MONTH(shift_date)=MONTH(CURDATE()) AND YEAR(shift_date)=YEAR(CURDATE()) AND employee_id=%s
+            """,
+            (user_id,)
         )
         row = cur.fetchone()
         monthly_salary = float(row[0]) if row and row[0] is not None else 0.0
+        month = row[2] if row else month
+        year = row[3] if row else year
         
         # Get total bills
         cur.execute("SELECT IFNULL(SUM(bill_amount),0) FROM bills WHERE user_id=%s", (user_id,))
@@ -982,10 +963,11 @@ def approve_shift(shift_id):
             return jsonify({'success': False, 'message': 'Shift not found'}), 404
         
         employee_id, shift_date, hours_worked, hourly_rate = shift
-        if round(float(hours_worked), 2) >= 6.0:
-            break_time = 0.25  # 30 minutes break for shifts 6 hours or longer
-        elif round(float(hours_worked), 2) >= 8.0:
+        rounded_hours = round(float(hours_worked), 2)
+        if rounded_hours >= 8.0:
             break_time = 0.5  # 1 hour break for shifts 8 hours or longer
+        elif rounded_hours >= 6.0:
+            break_time = 0.25  # 30 minutes break for shifts 6 hours or longer
         else:
             break_time = 0.0  # No break for shorter shifts
         
@@ -1013,25 +995,12 @@ def approve_shift(shift_id):
             "VALUES (%s, %s, %s, %s)",
             (shift_date, hours_worked, shift_earnings, employee_id)
         )
-        now = shift_date.day if hasattr(shift_date, 'day') else int(str(shift_date).split('-')[2])
-        week_num = now.isocalendar()[1] if hasattr(now, 'isocalendar') else datetime.strptime(str(shift_date), '%Y-%m-%d').isocalendar()[1]
+        # Persist shift earnings for weekly rollups
+        cur.execute(
+            "UPDATE shifts SET weekly_earning = %s WHERE shift_id = %s",
+            (shift_earnings, shift_id)
+        )
         year_num = shift_date.year if hasattr(shift_date, 'year') else int(str(shift_date).split('-')[0])
-        # Ensure weekly earnings are up to date
-        auto_update_weekly_earnings(employee_id)
-        # Get from weekly_earnings table (auto-updated)
-        cur.execute(
-                "SELECT IFNULL(earnings_amount,0) FROM weekly_earnings "
-                "WHERE week_number=%s AND year_num=%s AND user_id=%s",
-                (week_num, year_num, employee_id)
-        )
-        row = cur.fetchone()
-        total_weekly = float(row[0]) if row and row[0] is not None else 0.0
-        cur.execute(
-            "UPDATE weekly_earnings SET earnings_amount = %s "
-            "WHERE week_number = %s AND year_num = %s AND user_id = %s",
-            (total_weekly, week_num, year_num, employee_id)
-        )
-        # Update monthly salary summary
         # shift_date is a datetime.date object, so use .year and .month attributes
         month_num = shift_date.month if hasattr(shift_date, 'month') else int(str(shift_date).split('-')[1])
         
@@ -1045,24 +1014,9 @@ def approve_shift(shift_id):
         # Update weekly earnings by recalculating from daily_keep
         # Check if monthly record exists
         cur.execute(
-            "SELECT monthly_salary_id FROM monthly_salaries WHERE user_id = %s AND month = %s AND year_num = %s",
-            (employee_id, month_num, year_num)
+                "UPDATE shifts SET monthly_salaries = %s WHERE shift_id = %s",
+                (monthly_total, shift_id)
         )
-        existing_monthly = cur.fetchone()
-        
-        if existing_monthly:
-            cur.execute(
-                "UPDATE monthly_salaries SET salary_amount = %s WHERE user_id = %s AND month = %s AND year_num = %s",
-                (monthly_total, employee_id, month_num, year_num)
-            )
-        else:
-            # Create monthly record if it doesn't exist
-            cur.execute(
-                "INSERT INTO monthly_salaries (user_id, month, year_num, salary_amount) "
-                "VALUES (%s, %s, %s, %s)",
-                (employee_id, month_num, year_num, monthly_total)
-            )
-        
         conn.commit()
         
         return jsonify({
@@ -1110,7 +1064,17 @@ def approve_overtime_shift(shift_id):
         employee_id, shift_date, hours_worked, hourly_rate = shift
         
         # Calculate earnings for this shift
-        shift_earnings = round(float(hours_worked) * float(hourly_rate) * 1.5 , 2) if hourly_rate else 0.0
+        rounded_hours = round(float(hours_worked), 2)
+        if rounded_hours >= 8.0:
+            break_time = 0.5  # 1 hour break for shifts 8 hours or longer
+        elif rounded_hours >= 6.0:
+            break_time = 0.25  # 30 minutes break for shifts 6 hours or longer
+        else:
+            break_time = 0.0  # No break for shorter shifts
+        
+        # Calculate earnings for this shift
+        hours_worked_adjusted = float(hours_worked) - break_time
+        shift_earnings = round(hours_worked_adjusted * float(hourly_rate) * 1.5, 2) if hourly_rate else 0.0
         
         # Update shift status
         cur.execute(
@@ -1132,25 +1096,12 @@ def approve_overtime_shift(shift_id):
             "VALUES (%s, %s, %s, %s)",
             (shift_date, hours_worked, shift_earnings, employee_id)
         )
-        now = shift_date.day if hasattr(shift_date, 'day') else int(str(shift_date).split('-')[2])
-        week_num = now.isocalendar()[1] if hasattr(now, 'isocalendar') else datetime.strptime(str(shift_date), '%Y-%m-%d').isocalendar()[1]
+        # Persist shift earnings for weekly rollups
+        cur.execute(
+            "UPDATE shifts SET weekly_earning = %s WHERE shift_id = %s",
+            (shift_earnings, shift_id)
+        )
         year_num = shift_date.year if hasattr(shift_date, 'year') else int(str(shift_date).split('-')[0])
-        # Ensure weekly earnings are up to date
-        auto_update_weekly_earnings(employee_id)
-        # Get from weekly_earnings table (auto-updated)
-        cur.execute(
-                "SELECT IFNULL(earnings_amount,0) FROM weekly_earnings "
-                "WHERE week_number=%s AND year_num=%s AND user_id=%s",
-                (week_num, year_num, employee_id)
-        )
-        row = cur.fetchone()
-        total_weekly = float(row[0]) if row and row[0] is not None else 0.0
-        cur.execute(
-            "UPDATE weekly_earnings SET earnings_amount = %s "
-            "WHERE week_number = %s AND year_num = %s AND user_id = %s",
-            (total_weekly, week_num, year_num, employee_id)
-        )
-        # Update monthly salary summary
         # shift_date is a datetime.date object, so use .year and .month attributes
         month_num = shift_date.month if hasattr(shift_date, 'month') else int(str(shift_date).split('-')[1])
         
@@ -1319,21 +1270,19 @@ def get_employees():
         # Get current month and year
         from datetime import datetime
         now = datetime.now()
-        current_month = now.month
-        current_year = now.year
         
         # Get all employees with current month salary data
         cur.execute(
-            "SELECT u.user_id, u.username, u.hourly_rate, COUNT(DISTINCT s.shift_id) as total_shifts, "
-            "IFNULL(SUM(s.hours_worked), 0) as total_hours, "
-            "IFNULL(ms.salary_amount, 0) as monthly_salary "
-            "FROM users u "
-            "LEFT JOIN shifts s ON u.user_id = s.employee_id AND s.status = 'approved' "
-            "LEFT JOIN monthly_salaries ms ON u.user_id = ms.user_id AND ms.month = %s AND ms.year_num = %s "
-            "WHERE u.role = 'employee' "
-            "GROUP BY u.user_id, u.username, u.hourly_rate, ms.salary_amount "
-            "ORDER BY u.username",
-            (current_month, current_year)
+            """
+            SELECT u.user_id, u.username, u.hourly_rate,
+                   (SELECT COUNT(*) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS total_shifts,
+                   (SELECT IFNULL(SUM(hours_worked), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS total_hours,
+                   (SELECT COALESCE(SUM(monthly_salaries), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS monthly_salary
+            FROM users u
+            WHERE u.role = 'employee' AND u.created_by = %s
+            ORDER BY u.username
+            """,
+            (employer_id,)
         )
         employees = cur.fetchall()
         

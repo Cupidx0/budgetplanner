@@ -52,17 +52,6 @@ def init_db():
                 "  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL"
                 ") ENGINE=InnoDB"
             ),
-            "monthly_salaries": (
-                "CREATE TABLE IF NOT EXISTS monthly_salaries ("
-                "  monthly_salary_id INT AUTO_INCREMENT PRIMARY KEY,"
-                "  month INT NOT NULL,"
-                "  year_num INT NOT NULL,"
-                "  salary_amount DECIMAL(12,2) NOT NULL,"
-                "  user_id INT,"
-                "  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,"
-                "  UNIQUE (month, year_num, user_id)"
-                ") ENGINE=InnoDB"
-            ),
             "salary_after_bills": (
                 "CREATE TABLE IF NOT EXISTS salary_after_bills ("
                 "  salary_after_bills_id INT AUTO_INCREMENT PRIMARY KEY,"
@@ -84,6 +73,7 @@ def init_db():
                 "  end_time TIME NOT NULL,"
                 "  description TEXT,"
                 "  weekly_earnings DECIMAL(10,2) DEFAULT 0.00,"
+                "  monthly_salaries DECIMAL(10,2) DEFAULT 0.00,"
                 "  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',"
                 "  employee_id INT,"
                 "  created_by INT,"

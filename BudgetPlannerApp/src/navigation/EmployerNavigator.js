@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Toast from 'react-native-toast-message';
+import { toastConfig } from '../components/toastConfig';
 
 // Screens
 import Admin from '../screens/Admin';
@@ -84,6 +85,7 @@ export function EmployerNavigator({ onLogout }) {
         visibilityTime={3000}
         autoHide
         bottomOffset={40}
+        config={toastConfig}
       />
     </>
   );

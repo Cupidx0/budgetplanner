@@ -122,6 +122,7 @@ export default function ProfileScreen({ onLogout }) {
             value={hourlyRate}
             onChangeText={setHourlyRate}
             keyboardType="decimal-pad"
+            editable = {false}
           />
           <TouchableOpacity
             style={[styles.updateButton, loading && styles.buttonDisabled]}

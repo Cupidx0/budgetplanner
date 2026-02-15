@@ -48,18 +48,65 @@ export default function SubmitShiftScreen() {
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
       Alert.alert('Error', 'Please use HH:MM format for times');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Time Format',
+        text2: 'Please use HH:MM format for start and end times',
+        visibilityTime: 3000,
+      });
       return;
     }
-
+    if (startTime >= endTime) {
+      Alert.alert('Error', 'Start time must be before end time');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Time Range',
+        text2: 'Start time must be before end time',
+        visibilityTime: 3000,
+      });
+      return;
+    }
+    if (timeRegex.test(startTime) && timeRegex.test(endTime)<= new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) {
+      Alert.alert('Error', 'Shift times cannot be in the past');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Time',
+        text2: 'Shift times cannot be in the past',
+        visibilityTime: 3000,
+      });
+      return;
+    }
     // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(date)) {
       Alert.alert('Error', 'Please use YYYY-MM-DD format for date');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Date Format',
+        text2: 'Please use YYYY-MM-DD format for date',
+        visibilityTime: 3000,
+      });
       return;
     }
-
+    if (new Date(date) < new Date()) {
+      Alert.alert('Error', 'Shift date cannot be in the past');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Date',
+        text2: 'Shift date cannot be in the past',
+        visibilityTime: 3000,
+      });
+      return;
+    }
     if (!userId) {
       Alert.alert('Error', 'User not found');
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid User',
+        text2: 'User not found or not authenticated',
+        visibilityTime: 3000,
+      });
+      return;
       return;
     }
 

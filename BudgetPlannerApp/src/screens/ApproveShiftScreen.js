@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -160,54 +159,53 @@ export default function ApproveShiftScreen() {
     }
   };
   const handleRejectShift = async (shiftId, isEmployeeSubmitted = false) => {
-    Alert.alert(
-      'Reject Shift',
-      'Are you sure you want to reject this shift?',
-      [
-        { text: 'Cancel', onPress: () => {} },
-        {
-          text: 'Reject',
-          onPress: async () => {
-            try {
-              console.log('Rejecting shift:', shiftId);
-              const response = await employerShiftAPI.rejectShift(shiftId);
-              console.log('Reject response:', response);
-              
-              if (response && response.success) {
-                if (isEmployeeSubmitted) {
-                  setEmployeeSubmittedShifts(employeeSubmittedShifts.filter(shift => shift.id !== shiftId));
-                } else {
-                  setShifts(shifts.filter(shift => shift.id !== shiftId));
-                }
-                
-                Toast.show({
-                  type: 'info',
-                  text1: 'Rejected',
-                  text2: 'Shift has been rejected and employee notified',
-                  visibilityTime: 3000,
-                });
+    Toast.show({
+      type: 'confirm',
+      text1: 'Reject shift?',
+      text2: 'This will notify the employee.',
+      autoHide: false,
+      props: {
+        confirmText: 'Reject',
+        cancelText: 'Cancel',
+        onConfirm: async () => {
+          try {
+            console.log('Rejecting shift:', shiftId);
+            const response = await employerShiftAPI.rejectShift(shiftId);
+            console.log('Reject response:', response);
+
+            if (response && response.success) {
+              if (isEmployeeSubmitted) {
+                setEmployeeSubmittedShifts(prev => prev.filter(shift => shift.id !== shiftId));
               } else {
-                Toast.show({
-                  type: 'error',
-                  text1: 'Error',
-                  text2: response?.message || 'Failed to reject shift',
-                  visibilityTime: 3000,
-                });
+                setShifts(prev => prev.filter(shift => shift.id !== shiftId));
               }
-            } catch (error) {
-              console.error('Reject shift error:', error);
+
+              Toast.show({
+                type: 'info',
+                text1: 'Rejected',
+                text2: 'Shift has been rejected and employee notified',
+                visibilityTime: 3000,
+              });
+            } else {
               Toast.show({
                 type: 'error',
                 text1: 'Error',
-                text2: error.message || 'Failed to reject shift',
+                text2: response?.message || 'Failed to reject shift',
                 visibilityTime: 3000,
               });
             }
-          },
-          style: 'destructive',
+          } catch (error) {
+            console.error('Reject shift error:', error);
+            Toast.show({
+              type: 'error',
+              text1: 'Error',
+              text2: error.message || 'Failed to reject shift',
+              visibilityTime: 3000,
+            });
+          }
         },
-      ]
-    );
+      },
+    });
   };
 
   const renderShiftCard = ({ item }, isEmployeeSubmitted = false) => (
