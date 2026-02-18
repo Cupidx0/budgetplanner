@@ -718,7 +718,7 @@ def get_monthly_salary(user_id):
         # Get monthly salary from table
         cur.execute(
             """
-            SELECT IFNULL(SUM(monthly_salaries),0),
+            SELECT COALESCE(SUM(weekly_earning),0),
                             WEEK(CURDATE(),1), 
                             MONTH(CURDATE()),
                             YEAR(CURDATE())
@@ -734,8 +734,11 @@ def get_monthly_salary(user_id):
         year = row[3] if row else year
         # Calculate gross from daily_keep
         cur.execute(
-            "SELECT IFNULL(SUM(daily_keep_amount),0) FROM daily_keep "
-            "WHERE MONTH(daily_keep_date) = %s AND YEAR(daily_keep_date) = %s AND user_id = %s",
+            """
+            SELECT COALESCE(SUM(daily_keep_amount),0)
+            FROM daily_keep 
+            WHERE MONTH(daily_keep_date) = %s AND YEAR(daily_keep_date) = %s AND user_id = %s
+            """,
             (month, year, user_id)
         )
         gross_salary = float(cur.fetchone()[0] or 0.0)
@@ -779,7 +782,7 @@ def get_salary_after_bills(user_id):
         # Get monthly salary
         cur.execute(
             """
-            SELECT COALESCE(SUM(monthly_salaries),0),
+            SELECT COALESCE(SUM(weekly_earning),0),
                             WEEK(CURDATE(),1),
                             MONTH(CURDATE()),
                             YEAR(CURDATE())
@@ -1115,29 +1118,14 @@ def approve_overtime_shift(shift_id):
         # Update weekly earnings by recalculating from daily_keep
         # Check if monthly record exists
         cur.execute(
-            "SELECT monthly_salary_id FROM monthly_salaries WHERE user_id = %s AND month = %s AND year_num = %s",
-            (employee_id, month_num, year_num)
-        )
-        existing_monthly = cur.fetchone()
-        
-        if existing_monthly:
-            cur.execute(
-                "UPDATE monthly_salaries SET salary_amount = %s WHERE user_id = %s AND month = %s AND year_num = %s",
-                (monthly_total, employee_id, month_num, year_num)
-            )
-        else:
-            # Create monthly record if it doesn't exist
-            cur.execute(
-                "INSERT INTO monthly_salaries (user_id, month, year_num, salary_amount) "
-                "VALUES (%s, %s, %s, %s)",
-                (employee_id, month_num, year_num, monthly_total)
-            )
-        
+                "UPDATE shifts SET monthly_salaries = %s WHERE shift_id = %s",
+                (monthly_total, shift_id)
+        )    
         conn.commit()
         
         return jsonify({
             'success': True,
-            'message': 'Shift approved, salary updated, and notification sent',
+            'message': 'Overtime shift approved, salary updated, and notification sent',
             'earnings': shift_earnings
         }), 200
     except Exception as e:
@@ -1279,7 +1267,7 @@ def get_employees():
                    (SELECT IFNULL(SUM(hours_worked), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS total_hours,
                    (SELECT COALESCE(SUM(monthly_salaries), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS monthly_salary
             FROM users u
-            WHERE u.role = 'employee' AND u.created_by = %s
+            WHERE u.role = 'employee'AND u.created_by = %s
             ORDER BY u.username
             """,
             (employer_id,)
@@ -1290,7 +1278,8 @@ def get_employees():
         for emp in employees:
             total_hours = float(emp[4]) if emp[4] else 0
             hourly_rate = float(emp[2]) if emp[2] else 0
-            gross_salary = float(emp[5]) if emp[5] else (total_hours * hourly_rate)
+            gross_salary = float(emp[5]) if emp[5] is not None else (total_hours * hourly_rate)
+
             
             result.append({
                 'id': emp[0],

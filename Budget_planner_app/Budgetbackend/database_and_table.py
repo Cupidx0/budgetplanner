@@ -30,6 +30,7 @@ def init_db():
                 "  hourly_rate DECIMAL(10,2) DEFAULT 0.00,"
                 "  date_of_birth DATE DEFAULT NULL,"
                 "  role VARCHAR(20) DEFAULT 'employee',"
+                "  created_by INT,"
                 "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
                 ") ENGINE=InnoDB"
             ),
@@ -73,7 +74,6 @@ def init_db():
                 "  end_time TIME NOT NULL,"
                 "  description TEXT,"
                 "  weekly_earnings DECIMAL(10,2) DEFAULT 0.00,"
-                "  monthly_salaries DECIMAL(10,2) DEFAULT 0.00,"
                 "  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',"
                 "  employee_id INT,"
                 "  created_by INT,"
