@@ -163,7 +163,7 @@ export default function CreateShiftScreen() {
           type: 'success',
           text1: 'Success',
           text2: `Shift created for ${selectedEmployee.name}`,
-          visibilityTime: 3000,
+          visibilityTime: 6000,
         });
 
         // Reset form

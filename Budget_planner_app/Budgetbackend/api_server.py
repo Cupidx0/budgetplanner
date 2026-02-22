@@ -1016,11 +1016,6 @@ def approve_shift(shift_id):
         monthly_total = float(result[0]) if result and result[0] else 0.0
         # Update weekly earnings by recalculating from daily_keep
         # Check if monthly record exists
-        cur.execute(
-                "UPDATE shifts SET monthly_salaries = %s WHERE shift_id = %s",
-                (monthly_total, shift_id)
-        )
-        conn.commit()
         
         return jsonify({
             'success': True,
@@ -1117,11 +1112,6 @@ def approve_overtime_shift(shift_id):
         monthly_total = float(result[0]) if result and result[0] else 0.0
         # Update weekly earnings by recalculating from daily_keep
         # Check if monthly record exists
-        cur.execute(
-                "UPDATE shifts SET monthly_salaries = %s WHERE shift_id = %s",
-                (monthly_total, shift_id)
-        )    
-        conn.commit()
         
         return jsonify({
             'success': True,
@@ -1265,7 +1255,7 @@ def get_employees():
             SELECT u.user_id, u.username, u.hourly_rate,
                    (SELECT COUNT(*) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS total_shifts,
                    (SELECT IFNULL(SUM(hours_worked), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS total_hours,
-                   (SELECT COALESCE(SUM(monthly_salaries), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS monthly_salary
+                   (SELECT COALESCE(SUM(weekly_earning), 0) FROM shifts WHERE employee_id = u.user_id AND MONTH(shift_date) = MONTH(CURDATE()) AND YEAR(shift_date) = YEAR(CURDATE())) AS monthly_salary
             FROM users u
             WHERE u.role = 'employee'AND u.created_by = %s
             ORDER BY u.username
