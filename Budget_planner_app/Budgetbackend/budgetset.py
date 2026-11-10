@@ -1,9 +1,12 @@
 import os
-import mysql.connector
-from mysql.connector import Error
 from datetime import datetime
 
-# config
+import mysql.connector
+from mysql.connector import Error
+
+from database_and_table import get_conn as get_db_conn
+from database_and_table import init_db as initialize_database
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "daily_keep")
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(os.path.join(DATA_DIR, "weekly"), exist_ok=True)
@@ -13,51 +16,54 @@ DB_CONFIG = {
     "user": "root",
     "password": "",
     "host": "localhost",
-    "raise_on_warnings": True
+    "raise_on_warnings": True,
 }
 
-# --- DB Connection ---
+# Ensure the database and required tables exist when this module is imported.
+initialize_database()
+
+
 def get_conn():
-    """Get database connection."""
+    """Return a database connection for the app."""
     try:
-        conn = mysql.connector.connect(database=DB_NAME, **DB_CONFIG)
-        return conn
+        conn = get_db_conn()
+        if conn is not None:
+            return conn
+        return mysql.connector.connect(database=DB_NAME, **DB_CONFIG)
     except Error as e:
         print("Error connecting to database:", e)
         return None
 
-# --- Utility ---
+
 def calendar():
-    """Get current month name."""
+    """Return the current month name."""
     month_map = {
         1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June",
-        7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December"
+        7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December",
     }
     now = datetime.now()
-    return month_map[now.month]
+    return month_map.get(now.month, "Unknown")
 
-# --- User Management ---
+
 def add_user(username, password, hourly_rate, date_of_birth=None):
-    """Add user to database. Returns user_id if successful, None otherwise."""
+    """Add a user to the database and return the user_id."""
     conn = get_conn()
     if not conn:
         print("DB unavailable — cannot add user")
         return None
-    
+
     cur = None
     try:
         cur = conn.cursor()
         cur.execute(
             "INSERT IGNORE INTO users (username, password, hourly_rate, date_of_birth) VALUES (%s, %s, %s, %s)",
-            (username, password, float(hourly_rate), date_of_birth)
+            (username, password, float(hourly_rate), date_of_birth),
         )
         conn.commit()
-        
-        # Fetch the user_id
+
         cur.execute("SELECT user_id FROM users WHERE username=%s LIMIT 1", (username,))
         row = cur.fetchone()
-        user_id = int(row[0]) if row else None
-        return user_id
+        return int(row[0]) if row and row[0] is not None else None
     except Exception as e:
         print("Error adding user:", e)
         return None
@@ -65,31 +71,32 @@ def add_user(username, password, hourly_rate, date_of_birth=None):
         if cur:
             try:
                 cur.close()
-            except:
+            except Exception:
                 pass
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
 
+
 def save_daily_to_db(amount, hours_worked, user_id):
-    """Save daily salary to database."""
+    """Save a daily salary entry to the database."""
     if not user_id:
         print("No user_id provided — skipping daily salary save")
         return False
-    
+
     conn = get_conn()
     if not conn:
         print("DB unavailable — cannot save daily salary")
         return False
-    
+
     cur = None
     try:
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO daily_keep (daily_keep_date, daily_keep_amount, daily_hours_worked, user_id) VALUES (%s, %s, %s, %s)",
-            (datetime.now().date(), float(amount), float(hours_worked), user_id)
+            (datetime.now().date(), float(amount), float(hours_worked), user_id),
         )
         conn.commit()
         return True
@@ -100,16 +107,10 @@ def save_daily_to_db(amount, hours_worked, user_id):
         if cur:
             try:
                 cur.close()
-            except:
+            except Exception:
                 pass
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
-
-# --- Legacy CLI Functions (deprecated - use api_server.py instead) ---
-# Removed: salary_calc(), weekly_earnings(), add_bills(), view_bills(), 
-#          monthly_sal(), monthly_bill_sal(), estimate_monthly_salary(),
-#          get_user_hourly_rate(), get_sal_percent_after_bills(), user_signup(), main()
-# These are now handled via REST API endpoints in api_server.py

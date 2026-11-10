@@ -4,13 +4,20 @@ import mysql.connector
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, date
+from database_and_table import init_db
 from budgetset import get_conn, add_user, save_daily_to_db
 import openai
+
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React Native
+CORS(app)
 load_dotenv()
+
+# Ensure database schema exists at startup when MySQL is available.
+init_db()
+
 OPEN_AI_API_KEY = os.getenv("OPEN_AI_KEY")
 openai.api_key = OPEN_AI_API_KEY
+
 # --- Helper: Tax Calculation ---
 def calculate_tax(gross_salary):
     """Calculate UK income tax on monthly salary."""
@@ -135,53 +142,52 @@ def health():
 
 @app.route('/api/register', methods=['POST'])
 def register():
-    """Frontend sends username, password, hourly_rate."""
-    data = request.json
+    """Register a new user. Accept an explicit hourly rate or derive from DOB."""
+    data = request.get_json(silent=True) or {}
     username = data.get('username')
     password = data.get('password')
-    hourly_rate = data.get('hourly_rate')  # Optional, can be calculated from DOB if not provided
-    date_of_birth = data.get('date_of_birth')  # Optional, format: "YYYY-MM-DD"
+    hourly_rate = data.get('hourly_rate')
+    date_of_birth = data.get('date_of_birth')
+
     if not username or not password:
         return jsonify({'success': False, 'message': 'Missing credentials'}), 400
-    
-    if hourly_rate is not None:
+
+    try:
+        if hourly_rate is not None:
             hourly_rate = float(hourly_rate)
-            return jsonify({
-                "hourly_rate": hourly_rate,
-                "message": f"Hourly rate for user {user_id} is ${hourly_rate:.2f}"
-            }), 200
-    dob_date = None
-    if isinstance(date_of_birth, datetime):
-        dob_date = date_of_birth.date()
-    elif isinstance(date_of_birth, date):
-        dob_date = date_of_birth
-    elif isinstance(date_of_birth, str):
-        try:
-            dob_date = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
-        except ValueError:
+        else:
             dob_date = None
+            if isinstance(date_of_birth, datetime):
+                dob_date = date_of_birth.date()
+            elif isinstance(date_of_birth, date):
+                dob_date = date_of_birth
+            elif isinstance(date_of_birth, str):
+                try:
+                    dob_date = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
+                except ValueError:
+                    dob_date = None
 
-    if not dob_date:
-        return jsonify({"hourly_rate": None, "message": "Hourly rate not set"}), 200
+            if dob_date:
+                today = datetime.now().date()
+                age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
+                hourly_rate = 10.50 if age < 18 else 12.00
+            else:
+                hourly_rate = 12.00
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Invalid hourly rate'}), 400
 
-    today = datetime.now().date()
-    age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
-    hourly_rate = 10.50 if age < 18 else 12.00
-    hourly_rate = float(hourly_rate)
-    # Use your existing add_user function
     user_id = add_user(username, password, hourly_rate, date_of_birth)
-    
-    if user_id:
-        return jsonify({
-            'success': True,
-            'user_id': user_id,
-            'username': username,
-            'hourly_rate': hourly_rate,
-            'date_of_birth': date_of_birth,
-            'message': 'User registered successfully'
-        }), 201
-    else:
-        return jsonify({'success': False, 'message': 'Registration failed or user exists'}), 500
+    if not user_id:
+        return jsonify({'success': False, 'message': 'Registration failed or user already exists'}), 500
+
+    return jsonify({
+        'success': True,
+        'user_id': user_id,
+        'username': username,
+        'hourly_rate': float(hourly_rate),
+        'date_of_birth': date_of_birth,
+        'message': 'User registered successfully'
+    }), 201
 
 @app.route('/api/login', methods=['POST'])
 def login():

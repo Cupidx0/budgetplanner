@@ -1,117 +1,135 @@
-import React, { useState, useEffect, use } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import Toast from 'react-native-toast-message';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StyleSheet, View, ActivityIndicator } from 'react-native';
+import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-// Screens
-import LoginScreen from './src/screens/LoginScreen';
-import SignupScreen from './src/screens/SignupScreen';
+import OverviewScreen from './src/screens/OverviewScreen';
+import InsightsScreen from './src/screens/InsightsScreen';
+import AssistantScreen from './src/screens/AssistantScreen';
+import TransactionsScreen from './src/screens/TransactionsScreen';
 
-// Navigators
-import { EmployeeNavigator } from './src/navigation/EmployeeNavigator';
-import { EmployerNavigator } from './src/navigation/EmployerNavigator';
-
-// Services
-import { authAPI } from './src/services/api';
-
-const Stack = createNativeStackNavigator();
+const screens = [
+  { key: 'Overview', label: 'Overview' },
+  { key: 'Insights', label: 'Insights' },
+  { key: 'Assistant', label: 'Assistant' },
+  { key: 'Transactions', label: 'Transactions' },
+];
 
 export default function App() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState(null);
+  const [activeScreen, setActiveScreen] = useState('Overview');
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const userData = await authAPI.getCurrentUser();
-      if (userData) {
-        setIsAuthenticated(true);
-        // Assuming userData has a role property (e.g., 'employee' or 'employer')
-        setUserRole(userData.role || 'employee');
-      }
-      if(userData?.username === 'admin'){
-        setIsAuthenticated(true);
-        setUserRole('employer');
-      }
-    } catch (error) {
-      console.error('Error checking auth:', error);
-    } finally {
-      setIsLoading(false);
+  const renderScreen = () => {
+    switch (activeScreen) {
+      case 'Insights':
+        return <InsightsScreen />;
+      case 'Assistant':
+        return <AssistantScreen />;
+      case 'Transactions':
+        return <TransactionsScreen />;
+      default:
+        return <OverviewScreen onNavigate={setActiveScreen} />;
     }
   };
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
-  }
-
   return (
-    <>
-      <NavigationContainer>
-        <StatusBar style="auto" />
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!isAuthenticated ? (
-            <>
-              <Stack.Screen name="Login">
-                {(props) => <LoginScreen {...props} onLogin={() => setIsAuthenticated(true)} />}
-              </Stack.Screen>
-              <Stack.Screen name="Signup">
-                {(props) => <SignupScreen {...props} onSignup={() => setIsAuthenticated(true)} />}
-              </Stack.Screen>
-            </>
-          ) : userRole === 'employer' ? (
-            <Stack.Screen name="EmployerTabs">
-              {(props) => (
-                <EmployerNavigator 
-                  {...props} 
-                  onLogout={() => {
-                    setIsAuthenticated(false);
-                    setUserRole(null);
-                  }}
-                />
-              )}
-            </Stack.Screen>
-          ) : (
-            <Stack.Screen name="EmployeeTabs">
-              {(props) => (
-                <EmployeeNavigator 
-                  {...props} 
-                  onLogout={() => {
-                    setIsAuthenticated(false);
-                    setUserRole(null);
-                  }}
-                />
-              )}
-            </Stack.Screen>
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
-      <Toast
-        type="success"
-        position="bottom"
-        visibilityTime={3000}
-        autoHide
-        bottomOffset={40}
-      />
-    </>
+    <SafeAreaView style={styles.appShell}>
+      <StatusBar style="light" />
+      <View style={styles.layout}>
+        <View style={styles.sidebar}>
+          <View style={styles.brandBlock}>
+            <View style={styles.brandMark}>BP</View>
+            <View>
+              <Text style={styles.eyebrow}>Finance suite</Text>
+              <Text style={styles.brandTitle}>Budget Planner</Text>
+            </View>
+          </View>
+
+          <View style={styles.nav}>
+            {screens.map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                onPress={() => setActiveScreen(item.key)}
+                style={[styles.navItem, activeScreen === item.key && styles.navItemActive]}
+              >
+                <Text style={[styles.navText, activeScreen === item.key && styles.navTextActive]}>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.main}>{renderScreen()}</View>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: {
+  appShell: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#f5f7fb',
+  },
+  layout: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#f5f7fb',
+  },
+  sidebar: {
+    width: 260,
+    backgroundColor: '#101b38',
+    padding: 24,
+    borderTopRightRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  brandBlock: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+    marginBottom: 28,
+  },
+  brandMark: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#5b7cff',
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 44,
+  },
+  eyebrow: {
+    color: '#9aa8c7',
+    fontSize: 11,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  brandTitle: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  nav: {
+    gap: 10,
+  },
+  navItem: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: 'transparent',
+  },
+  navItemActive: {
+    backgroundColor: 'rgba(91,124,255,0.18)',
+  },
+  navText: {
+    color: '#dfe7ff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  navTextActive: {
+    color: '#fff',
+  },
+  main: {
+    flex: 1,
   },
 });
 
