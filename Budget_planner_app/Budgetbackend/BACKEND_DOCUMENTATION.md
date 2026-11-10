@@ -1,190 +1,104 @@
 # Budget Planner Backend Documentation
 
 ## Overview
-The backend is a Flask REST API that powers authentication, salary calculations, bills, and employer/employee shift management. It uses a MySQL database and auto-initializes the schema on import.
+Flask REST API for the Budget Planner web app. A user's money data (accounts, balances and transactions) comes from a **bank API**. MySQL stores only app users and the bills they plan for.
 
-Key modules:
-- `api_server.py`: Flask app, REST endpoints, business logic.
-- `database_and_table.py`: Database config and schema initialization.
-- `budgetset.py`: DB helper utilities used by the API (user creation, daily salary inserts).
-- `budget_assistant.txt`: Chat log file for the budgeting assistant.
-- `stocks_investment.py`: Standalone websocket demo for price streaming (not called by the API).
-- `ml_ai_budgeting.py`: Placeholder (currently empty).
+| Module | Purpose |
+| --- | --- |
+| `api_server.py` | Flask app: auth, bank data, monthly summary, planned bills, AI assistant |
+| `bank_client.py` | The only code that talks to the bank. Remote mock API, or built-in placeholder data |
+| `database_and_table.py` | MySQL config and schema (`users`, `bills`) |
+| `budget_assistant.txt` | Assistant chat log (one entry per exchange) |
+| `stocks_investment.py`, `ml_ai_budgeting.py` | Standalone experiments, not used by the API |
 
-## Runtime and Setup
-- Python dependencies: `Budget_planner_app/Budgetbackend/requirements.txt`
-- Start server: `python api_server.py`
-- Default base URL: `http://localhost:5000`
-- CORS: enabled for all origins (see `api_server.py`).
+## Setup
+```bash
+pip install -r requirements.txt
+cp example.env .env      # then fill in values
+python3 api_server.py    # http://localhost:5001
+```
 
-### Environment Variables
-- `OPEN_AI_KEY`: Optional. Enables the AI budget assistant endpoint.
+### Environment variables
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BANK_API_URL` | *(unset)* | Base URL of the mock bank API. Unset means built-in placeholder data |
+| `BANK_API_KEY` | *(unset)* | Sent as `Authorization: Bearer …` if set |
+| `BANK_API_TIMEOUT` | `10` | Seconds |
+| `OPEN_AI_KEY` | *(unset)* | Enables the AI assistant. Without it, replies are built from the summary |
+| `DB_HOST` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | `localhost` / `root` / `""` / `salary_management` | MySQL |
+| `PORT` | `5001` | API port |
+
+## Connecting the bank API
+`bank_client.py` exposes two functions to the rest of the backend:
+
+- `get_accounts(user_id)` returns a list of `{account_id, name, type, balance, currency}`
+- `get_transactions(user_id, start, end)` returns a list of `{transaction_id, account_id, date, description, amount, category}`, newest first. `amount` is signed: **positive is money in, negative is money out**.
+
+When `BANK_API_URL` is set, the client calls:
+
+```
+GET {BANK_API_URL}/users/{customer_id}/accounts
+GET {BANK_API_URL}/users/{customer_id}/transactions?from=YYYY-MM-DD&to=YYYY-MM-DD
+```
+
+Responses may be a bare list or wrapped as `{"accounts": [...]}`, `{"transactions": [...]}` or `{"data": [...]}`. Common field-name variants are mapped automatically, for example `accountId`/`id`, `bookingDate`, `merchant`, and unsigned amounts with `direction: "debit"`. If your mock differs, edit these in `bank_client.py`:
+
+- `ACCOUNTS_PATH` / `TRANSACTIONS_PATH`: the endpoint paths
+- `_customer_id(user_id)`: maps an app user to a bank customer id (default: the same id)
+- `_normalize_account()` / `_normalize_transaction()`: field mapping
+
+Transactions in the `Transfer` or `Savings` categories are treated as moves between the user's own accounts and excluded from income and spending totals (`TRANSFER_CATEGORIES`).
+
+If the bank can't be reached or returns an error, the API responds with **502** and `{"error": "..."}`.
 
 ## Database
-### Database Name
-- `salary_management`
+Database `salary_management` (configurable). `init_db()` creates any missing tables at startup and never drops existing ones. It also seeds a dev user, `admin` / `password123`.
 
-### Connection Config
-Defined in `Budget_planner_app/Budgetbackend/database_and_table.py` and `Budget_planner_app/Budgetbackend/budgetset.py`:
-- user: `root`
-- password: `""`
-- host: `localhost`
+- `users`: `user_id`, `username` (unique), `password`, `created_at`
+- `bills`: `bill_id`, `bill_name`, `bill_amount`, `user_id`
 
-### Schema Initialization
-`database_and_table.py` creates the DB and tables at import time via `init_db()`. It also inserts a default user:
-- `admin` / `password123`
+Passwords are stored in plain text, so this is only suitable for local development.
 
-### Tables
-All tables are created in `database_and_table.py`.
+## Endpoints
+All responses are JSON. User-scoped routes take the numeric `user_id` returned by login.
 
-#### `users`
-- `user_id` INT PK, auto increment
-- `username` VARCHAR(50), unique
-- `password` VARCHAR(255)
-- `hourly_rate` DECIMAL(10,2)
-- `role` VARCHAR(20) default `employee`
-- `created_at` TIMESTAMP
+### Health & auth
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| GET | `/api/health` | | `{status, bank_mode: "remote" \| "placeholder"}` |
+| POST | `/api/register` | `{username, password}` | `201 {success, user_id, username}`, or `409` if the name is taken |
+| POST | `/api/login` | `{username, password}` | `200 {success, user_id, username}`, or `401` |
 
-#### `daily_keep`
-- `daily_keep_id` INT PK
-- `daily_keep_date` DATE
-- `daily_hours_worked` DECIMAL(5,2)
-- `daily_keep_amount` DECIMAL(10,2)
-- `user_id` INT FK -> `users.user_id` (ON DELETE SET NULL)
+### Bank data
+| Method | Path | Query | Response |
+| --- | --- | --- | --- |
+| GET | `/api/user/:id/accounts` | | `{accounts: Account[]}` |
+| GET | `/api/user/:id/transactions` | `from`, `to` (YYYY-MM-DD; default last 30 days) | `{transactions: Transaction[]}` |
+| GET | `/api/user/:id/summary` | `month` (YYYY-MM; default current) | see below |
 
-#### `bills`
-- `bill_id` INT PK
-- `bill_name` VARCHAR(100)
-- `bill_amount` DECIMAL(10,2)
-- `user_id` INT FK -> `users.user_id` (ON DELETE SET NULL)
+Summary fields:
+- `month`
+- `total_balance`: sum of all account balances
+- `income`, `spending`, `net`: this month so far, transfers excluded
+- `expected_income`: the higher of this month's and last month's income, used for planning before payday
+- `spending_by_category`: `[{category, amount}]`, largest first
+- `bills_total`: sum of planned bills
+- `savings_target`: 20% of expected income
+- `savings_progress`: 0–100, the share of the target still achievable
+- `transaction_count`
 
-#### `weekly_earnings`
-- `weekly_earnings_id` INT PK
-- `week_number` INT
-- `year_num` INT
-- `earnings_amount` DECIMAL(10,2)
-- `user_id` INT FK -> `users.user_id` (ON DELETE SET NULL)
-- Unique: `(week_number, year_num, user_id)`
-
-#### `monthly_salaries`
-- `monthly_salary_id` INT PK
-- `month` INT
-- `year_num` INT
-- `salary_amount` DECIMAL(12,2)
-- `user_id` INT FK -> `users.user_id` (ON DELETE SET NULL)
-- Unique: `(month, year_num, user_id)`
-
-#### `salary_after_bills`
-- `salary_after_bills_id` INT PK
-- `month` INT
-- `year_num` INT
-- `net_after_bills` DECIMAL(12,2)
-- `percentage_after_bills` DECIMAL(5,2)
-- `user_id` INT FK -> `users.user_id` (ON DELETE SET NULL)
-- Unique: `(month, year_num, user_id)`
-
-#### `shifts`
-- `shift_id` INT PK
-- `shift_name` VARCHAR(100)
-- `shift_date` DATE
-- `start_time` TIME
-- `end_time` TIME
-- `description` TEXT
-- `status` ENUM('pending','approved','rejected') default `pending`
-- `employee_id` INT FK -> `users.user_id` (ON DELETE CASCADE)
-- `created_by` INT FK -> `users.user_id` (ON DELETE SET NULL)
-- `shift_type` ENUM('employer_created','employee_submitted') default `employer_created`
-- `hours_worked` DECIMAL(5,2)
-- `created_at` TIMESTAMP
-- `approved_at` TIMESTAMP NULL
-
-#### `notifications`
-- `notification_id` INT PK
-- `user_id` INT FK -> `users.user_id` (ON DELETE CASCADE)
-- `shift_id` INT FK -> `shifts.shift_id` (ON DELETE CASCADE)
-- `notification_type` VARCHAR(50)
-- `message` VARCHAR(255)
-- `is_read` BOOLEAN
-- `created_at` TIMESTAMP
-
-## Core Flows
-### Daily Salary
-1. `POST /api/user/<id>/daily-salary` calculates hours and salary.
-2. `save_daily_to_db()` inserts into `daily_keep`.
-3. `auto_update_weekly_earnings()` updates `weekly_earnings`.
-4. `auto_update_monthly_salary()` updates `monthly_salaries` and applies tax.
-
-### Bills and Salary After Bills
-- Bills are stored in `bills`.
-- `GET /api/user/<id>/salary-after-bills` calculates net salary after deducting bills and stores results in `salary_after_bills`.
-
-### Shift Management
-- Employers create shifts (`POST /api/employer/shifts`).
-- Employees can submit shifts (`POST /api/employee/shifts`).
-- Approve/reject flows update `shifts.status` and create `notifications`.
-- Approvals insert into `daily_keep` to feed salary totals and weekly/monthly rollups.
-
-### Budget Assistant
-- `POST /api/assistant/user/<id>/chat` uses OpenAI if `OPEN_AI_KEY` is set.
-- Chat history is appended to `budget_assistant.txt`.
-- `GET /api/assistantchat/user/<id>/message` returns the parsed chat history for a user.
-
-## API Endpoints
-All endpoints are defined in `Budget_planner_app/Budgetbackend/api_server.py`.
-
-### Health
-- `GET /api/health` - Basic health check.
-
-### Authentication
-- `POST /api/register`
-- `POST /api/login`
-
-### User and Salary
-- `GET /api/user/<user_id>/hourly-rate`
-- `PUT /api/user/<user_id>/hourly-rate`
-- `POST /api/user/<user_id>/daily-salary`
-- `GET /api/user/<user_id>/daily-salary`
-- `GET /api/user/<user_id>/daily-salary-history`
-- `GET /api/user/<user_id>/weekly-earnings`
-- `GET /api/user/<user_id>/monthly-salary`
-- `GET /api/user/<user_id>/salary-after-bills`
-
-### Bills
-- `GET /api/user/<user_id>/bills`
-- `POST /api/user/<user_id>/bills`
-- `DELETE /api/user/<user_id>/bills/<bill_id>`
-
-### Employer Shift Management
-- `POST /api/employer/shifts`
-- `GET /api/employer/pending-shifts`
-- `PUT /api/employer/shifts/<shift_id>/approve`
-- `PUT /api/employer/shifts/<shift_id>/reject`
-- `GET /api/employer/employees`
-- `GET /api/employer/employees/<employee_id>/salary`
-- `GET /api/employer/pending-employee-shifts`
-
-### Employee Shift Management
-- `GET /api/employee/shifts`
-- `POST /api/employee/shifts`
-- `GET /api/employee/submitted-shifts`
-
-### Notifications
-- `GET /api/employee/notifications`
-- `PUT /api/employee/notifications/<notification_id>/read`
+### Planned bills
+| Method | Path | Body |
+| --- | --- | --- |
+| GET | `/api/user/:id/bills` | |
+| POST | `/api/user/:id/bills` | `{name, amount}` (amount > 0) |
+| DELETE | `/api/user/:id/bills/:bill_id` | |
 
 ### Assistant
-- `POST /api/assistant/user/<user_id>/chat`
-- `GET /api/assistantchat/user/<user_id>/message`
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| POST | `/api/assistant/user/:id/chat` | `{message}` | `{response}`, using the summary, bills, last 14 days of transactions and the user's last 5 exchanges |
+| GET | `/api/assistant/user/:id/history` | | `{chat_history: [{user_message, assistant_response, timestamp}]}` |
 
-## File-Level Responsibilities
-- `api_server.py`: request parsing, validation, SQL operations, and response formatting.
-- `database_and_table.py`: database bootstrap and schema creation.
-- `budgetset.py`: shared DB helpers used by `api_server.py` (user creation and daily salary persistence).
-- `budget_assistant.txt`: persisted assistant chat history.
-- `stocks_investment.py`: websocket demo for stock price streaming (standalone).
-
-## Notes and Constraints
-- Time fields for shifts are expected in `HH:MM` 24-hour format.
-- Money columns are stored as DECIMAL with 2 digits of precision.
-- Several endpoints auto-update aggregate tables to keep summaries in sync.
-- The admin login shortcut stores `user_id` as a string (`"admin"`), which is not a numeric user_id from the DB.
+## Removed
+The shift, salary, hourly-rate, employer/employee and notification endpoints were removed, along with `budgetset.py`. Their MySQL tables (`shifts`, `daily_keep`, `salary_after_bills`, `notifications`) are no longer created or read, but existing data is left in place. The `daily_keep/` folder of old salary text files is also unused.
